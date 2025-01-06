@@ -244,14 +244,17 @@ struct CompletionRingView: View {
         let colors: [Color]
         
         if progress >= 1.0 {
-            // Completed - bright green gradient
-            colors = [.green, .green.opacity(0.8)]
+            // Completed - dark green gradient
+            colors = [Color(red: 0, green: 0.6, blue: 0), Color(red: 0, green: 0.4, blue: 0)]
         } else if progress >= 0.5 {
-            // More than half - yellow gradient
-            colors = [.yellow, .yellow.opacity(0.8)]
+            // More than half - medium green gradient
+            colors = [Color(red: 0.4, green: 0.8, blue: 0.4), Color(red: 0.2, green: 0.6, blue: 0.2)]
+        } else if progress > 0 {
+            // Less than half - light red gradient
+            colors = [Color(red: 1.0, green: 0.6, blue: 0.6), Color(red: 0.9, green: 0.4, blue: 0.4)]
         } else {
-            // Less than half - red gradient
-            colors = [.red, .red.opacity(0.8)]
+            // No progress - very light gray
+            colors = [Color.gray.opacity(0.3), Color.gray.opacity(0.2)]
         }
         
         return LinearGradient(
@@ -314,24 +317,28 @@ struct CalendarGridView: View {
     }
     
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 15) {
             // Month navigation
             HStack {
                 Button(action: previousMonth) {
                     Image(systemName: "chevron.left")
                         .foregroundColor(.blue)
+                        .imageScale(.large)
+                        .frame(width: 44, height: 44)
                 }
                 
                 Spacer()
                 
                 Text(monthString)
-                    .font(.title2.bold())
+                    .font(.title.bold())
                 
                 Spacer()
                 
                 Button(action: nextMonth) {
                     Image(systemName: "chevron.right")
                         .foregroundColor(.blue)
+                        .imageScale(.large)
+                        .frame(width: 44, height: 44)
                 }
             }
             .padding(.horizontal)
@@ -340,13 +347,16 @@ struct CalendarGridView: View {
             HStack {
                 ForEach(daysInWeek, id: \.self) { day in
                     Text(day)
-                        .font(.caption)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
                         .frame(maxWidth: .infinity)
                 }
             }
+            .padding(.horizontal)
+            .padding(.top, 10)
             
             // Calendar grid
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 7), spacing: 12) {
                 ForEach(daysInMonth, id: \.self) { date in
                     if calendar.isDate(date, equalTo: selectedMonth, toGranularity: .month) {
                         DayCell(date: date, isToday: calendar.isDateInToday(date))
@@ -356,9 +366,9 @@ struct CalendarGridView: View {
                     }
                 }
             }
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
-        .padding(.top, 5)
+        .padding(.vertical)
     }
     
     private func previousMonth() {
@@ -381,23 +391,23 @@ struct DayCell: View {
     private let calendar = Calendar.current
     
     var body: some View {
-        VStack {
+        VStack(spacing: 8) {
             Text("\(calendar.component(.day, from: date))")
-                .font(.callout)
+                .font(.system(size: 16, weight: .medium))
                 .foregroundColor(isToday ? .blue : .primary)
             
-            // For demo purposes, showing random progress
             CompletionRingView(
                 progress: isToday ? 0.7 : Double.random(in: 0...1),
-                size: 24
+                size: 32
             )
         }
-        .padding(4)
+        .padding(8)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isToday ? Color.blue : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isToday ? Color.blue : Color.clear, lineWidth: 2)
         )
-        .frame(height: 60)
+        .frame(minHeight: 80)
+        .contentShape(Rectangle())
     }
 }
 
@@ -410,6 +420,7 @@ struct CalendarView: View {
                 .navigationTitle("Calendar")
                 .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(.stack)
     }
 }
 
