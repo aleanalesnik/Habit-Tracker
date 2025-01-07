@@ -40,9 +40,15 @@ struct DateNavigationView: View {
             
             Spacer()
             
-            Text(dateFormatter.string(from: selectedDate))
-                .font(.title.bold())
-                .foregroundColor(isToday ? .blue : .primary)
+            if isToday {
+                Text("Today")
+                    .font(AppStyle.TextStyle.navigationTitle)
+                    .foregroundColor(.primary)
+            } else {
+                Text(dateFormatter.string(from: selectedDate))
+                    .font(.title3)
+                    .foregroundColor(.primary)
+            }
             
             Spacer()
             
@@ -54,7 +60,42 @@ struct DateNavigationView: View {
             }
             .disabled(!canMoveForward)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+}
+
+struct CalendarNavigationView: View {
+    let month: String
+    let previousMonth: () -> Void
+    let nextMonth: () -> Void
+    
+    var body: some View {
+        HStack {
+            Button(action: previousMonth) {
+                Image(systemName: "chevron.left")
+                    .foregroundColor(.blue)
+                    .imageScale(.large)
+                    .frame(width: 44, height: 44)
+            }
+            
+            Spacer()
+            
+            Text(month)
+                .font(.title3)
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            Button(action: nextMonth) {
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.blue)
+                    .imageScale(.large)
+                    .frame(width: 44, height: 44)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 
@@ -133,17 +174,14 @@ struct HabitsView: View {
                 if isToday {
                     HStack {
                         TextField("Enter new habit", text: $newHabitName)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .padding(.horizontal)
+                            .textFieldStyle(.roundedBorder)
                         
                         Button(action: addHabit) {
                             Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.blue)
-                                .font(.title)
-                                .frame(width: 44, height: 44)
+                                .imageScale(.large)
                         }
                     }
-                    .padding(.vertical, 15)
+                    .padding()
                 }
                 
                 List {
@@ -192,9 +230,6 @@ struct HabitsView: View {
                         }
                     }
                 }
-                .padding(.top, 10)
-                
-                Spacer()
             }
             .navigationTitle("Habits")
             .navigationBarTitleDisplayMode(.inline)
@@ -345,36 +380,59 @@ struct CompletionRingView: View {
     }
 }
 
-struct CalendarGridView: View {
-    let currentDate: Date
-    @Binding var selectedMonth: Date
-    let viewContext: NSManagedObjectContext
-    
-    @FetchRequest private var habits: FetchedResults<CDHabit>
-    
-    init(currentDate: Date, selectedMonth: Binding<Date>, viewContext: NSManagedObjectContext) {
-        self.currentDate = currentDate
-        self._selectedMonth = selectedMonth
-        self.viewContext = viewContext
-        
-        let request = NSFetchRequest<CDHabit>(entityName: "CDHabit")
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDHabit.createdAt, ascending: true)]
-        request.predicate = NSPredicate(format: "isArchived == NO")
-        _habits = FetchRequest(fetchRequest: request)
-    }
-    
+struct CalendarView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    @State private var selectedMonth = Date()
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \CDHabit.createdAt, ascending: true)],
+        predicate: NSPredicate(format: "isArchived == NO"),
+        animation: .default)
+    private var habits: FetchedResults<CDHabit>
     
-    private var monthString: String {
-        selectedMonth.formatted(.dateTime.month(.wide).year())
+    var body: some View {
+        NavigationView {
+            VStack {
+                CalendarNavigationView(
+                    month: selectedMonth.formatted(.dateTime.month(.wide).year()),
+                    previousMonth: previousMonth,
+                    nextMonth: nextMonth
+                )
+                .padding(.bottom, 16)
+                
+                // Day headers
+                HStack {
+                    ForEach(daysInWeek, id: \.self) { day in
+                        Text(day)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                
+                // Calendar grid
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
+                    ForEach(daysInMonth, id: \.self) { date in
+                        if calendar.isDate(date, equalTo: selectedMonth, toGranularity: .month) {
+                            DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
+                        } else {
+                            DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
+                                .opacity(0.3)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .navigationViewStyle(.stack)
     }
     
     private var daysInMonth: [Date] {
         let interval = calendar.dateInterval(of: .month, for: selectedMonth)!
         let firstDay = interval.start
         
-        // Get the first day of the week containing the first day of the month
         let firstWeekday = calendar.component(.weekday, from: firstDay)
         let offsetDays = firstWeekday - calendar.firstWeekday
         let startDate = calendar.date(byAdding: .day, value: -offsetDays, to: firstDay)!
@@ -389,61 +447,6 @@ struct CalendarGridView: View {
         }
         
         return dates
-    }
-    
-    var body: some View {
-        VStack(spacing: 15) {
-            // Month navigation
-            HStack {
-                Button(action: previousMonth) {
-                    Image(systemName: "chevron.left")
-                        .foregroundColor(.blue)
-                        .imageScale(.large)
-                        .frame(width: 44, height: 44)
-                }
-                
-                Spacer()
-                
-                Text(monthString)
-                    .font(.title.bold())
-                
-                Spacer()
-                
-                Button(action: nextMonth) {
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.blue)
-                        .imageScale(.large)
-                        .frame(width: 44, height: 44)
-                }
-            }
-            .padding(.horizontal)
-            
-            // Day headers
-            HStack {
-                ForEach(daysInWeek, id: \.self) { day in
-                    Text(day)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 10)
-            
-            // Calendar grid
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 7), spacing: 12) {
-                ForEach(daysInMonth, id: \.self) { date in
-                    if calendar.isDate(date, equalTo: selectedMonth, toGranularity: .month) {
-                        DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
-                    } else {
-                        DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
-                            .opacity(0.3)
-                    }
-                }
-            }
-            .padding(.horizontal)
-        }
-        .padding(.vertical)
     }
     
     private func previousMonth() {
@@ -510,20 +513,6 @@ struct DayCell: View {
     }
 }
 
-struct CalendarView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-    @State private var selectedMonth = Date()
-    
-    var body: some View {
-        NavigationView {
-            CalendarGridView(currentDate: Date(), selectedMonth: $selectedMonth, viewContext: viewContext)
-                .navigationTitle("Calendar")
-                .navigationBarTitleDisplayMode(.inline)
-        }
-        .navigationViewStyle(.stack)
-    }
-}
-
 // Helper extension for calendar date generation
 extension Calendar {
     func generateDates(for dateInterval: DateInterval, matching components: DateComponents = DateComponents()) -> [Date] {
@@ -558,14 +547,18 @@ struct ContentView: View {
                 .environment(\.managedObjectContext, viewContext)
                 .tabItem {
                     Label("Habits", systemImage: "checkmark.circle.fill")
+                    .frame(maxHeight: .infinity)
                 }
             
             CalendarView()
                 .environment(\.managedObjectContext, viewContext)
                 .tabItem {
                     Label("Calendar", systemImage: "calendar")
+                    .frame(maxHeight: .infinity)
                 }
         }
+        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: -4)
+        .tint(.blue)
     }
 }
 

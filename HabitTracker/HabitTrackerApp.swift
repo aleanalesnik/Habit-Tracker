@@ -10,11 +10,17 @@ import SwiftUI
 @main
 struct HabitTrackerApp: App {
     let persistenceController = PersistenceController.shared
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            if !hasCompletedOnboarding {
+                OnboardingView()
+                    .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            } else {
+                ContentView()
+                    .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            }
         }
     }
 }
