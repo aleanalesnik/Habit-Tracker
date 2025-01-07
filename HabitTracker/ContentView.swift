@@ -6,18 +6,7 @@
 //
 
 import SwiftUI
-
-struct HabitCompletion: Identifiable {
-    let id = UUID()
-    let habitId: UUID
-    let date: Date
-}
-
-struct Habit: Identifiable {
-    let id = UUID()
-    let name: String
-    var isCompleted: Bool
-}
+import CoreData
 
 struct ToastView: View {
     let message: String
@@ -32,9 +21,51 @@ struct ToastView: View {
     }
 }
 
+struct DateNavigationView: View {
+    let dateFormatter: DateFormatter
+    let selectedDate: Date
+    let isToday: Bool
+    let canMoveForward: Bool
+    let previousDay: () -> Void
+    let nextDay: () -> Void
+    
+    var body: some View {
+        HStack {
+            Button(action: previousDay) {
+                Image(systemName: "chevron.left")
+                    .foregroundColor(.blue)
+                    .imageScale(.large)
+                    .frame(width: 44, height: 44)
+            }
+            
+            Spacer()
+            
+            Text(dateFormatter.string(from: selectedDate))
+                .font(.title.bold())
+                .foregroundColor(isToday ? .blue : .primary)
+            
+            Spacer()
+            
+            Button(action: nextDay) {
+                Image(systemName: "chevron.right")
+                    .foregroundColor(canMoveForward ? .blue : .gray)
+                    .imageScale(.large)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(!canMoveForward)
+        }
+        .padding(.horizontal)
+    }
+}
+
 struct HabitsView: View {
-    @State private var habits: [Habit] = []
-    @State private var habitCompletions: [HabitCompletion] = []
+    @Environment(\.managedObjectContext) private var viewContext
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \CDHabit.createdAt, ascending: true)],
+        predicate: NSPredicate(format: "isArchived == NO"),
+        animation: .default)
+    private var habits: FetchedResults<CDHabit>
+    
     @State private var newHabitName = ""
     @State private var showToast = false
     @State private var showCompletionAlert = false
@@ -52,88 +83,100 @@ struct HabitsView: View {
         calendar.isDateInToday(selectedDate)
     }
     
-    var incompleteHabits: [Habit] {
-        habits.filter { habit in
-            !isHabitCompleted(habit, on: selectedDate)
+    private func completionsForDate(_ date: Date) -> [CDHabitCompletion] {
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        return habits.flatMap { habit in
+            habit.completionsArray.filter { completion in
+                completion.completedAt! >= startOfDay && completion.completedAt! < endOfDay
+            }
         }
     }
     
-    var completedHabits: [Habit] {
+    private var incompleteHabits: [CDHabit] {
         habits.filter { habit in
-            isHabitCompleted(habit, on: selectedDate)
+            !completionsForDate(selectedDate).contains { completion in
+                completion.habit == habit
+            }
         }
     }
     
-    var allHabitsCompleted: Bool {
-        !habits.isEmpty && habits.allSatisfy { isHabitCompleted($0, on: selectedDate) }
+    private var completedHabits: [CDHabit] {
+        habits.filter { habit in
+            completionsForDate(selectedDate).contains { completion in
+                completion.habit == habit
+            }
+        }
+    }
+    
+    private var allHabitsCompleted: Bool {
+        !habits.isEmpty && habits.allSatisfy { habit in
+            completionsForDate(selectedDate).contains { completion in
+                completion.habit == habit
+            }
+        }
     }
     
     var body: some View {
         NavigationView {
             VStack {
-                // Date Navigation
-                HStack {
-                    Button(action: previousDay) {
-                        Image(systemName: "chevron.left")
-                            .foregroundColor(.blue)
-                    }
-                    
-                    Spacer()
-                    
-                    Text(dateFormatter.string(from: selectedDate))
-                        .font(.headline)
-                        .foregroundColor(isToday ? .blue : .primary)
-                    
-                    Spacer()
-                    
-                    Button(action: nextDay) {
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(canMoveForward ? .blue : .gray)
-                    }
-                    .disabled(!canMoveForward)
-                }
-                .padding(.horizontal)
+                DateNavigationView(
+                    dateFormatter: dateFormatter,
+                    selectedDate: selectedDate,
+                    isToday: isToday,
+                    canMoveForward: canMoveForward,
+                    previousDay: previousDay,
+                    nextDay: nextDay
+                )
                 
                 if isToday {
                     HStack {
                         TextField("Enter new habit", text: $newHabitName)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .padding(.leading)
+                            .padding(.horizontal)
                         
                         Button(action: addHabit) {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundColor(.blue)
                                 .font(.title)
+                                .frame(width: 44, height: 44)
                         }
-                        .padding(.horizontal)
                     }
-                    .padding(.vertical)
+                    .padding(.vertical, 15)
                 }
                 
                 List {
-                    Section(header: Text("Daily Habits")) {
-                        ForEach(habits.filter { !isHabitCompleted($0, on: selectedDate) }) { habit in
+                    Section(header: Text("Daily Habits")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    ) {
+                        ForEach(incompleteHabits) { habit in
                             HStack {
-                                Text(habit.name)
+                                Text(habit.name ?? "")
                                 Spacer()
                                 Button(action: {
                                     withAnimation {
                                         toggleHabitCompletion(habit)
                                     }
                                 }) {
-                                    Image(systemName: isHabitCompleted(habit, on: selectedDate) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(isHabitCompleted(habit, on: selectedDate) ? .green : .gray)
+                                    Image(systemName: isHabitCompleted(habit) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(isHabitCompleted(habit) ? .green : .gray)
                                         .font(.title2)
+                                        .frame(width: 44, height: 44)
                                 }
                             }
                         }
                     }
                     
                     if !completedHabits.isEmpty {
-                        Section(header: Text("Completed")) {
-                            ForEach(habits.filter { isHabitCompleted($0, on: selectedDate) }) { habit in
+                        Section(header: Text("Completed")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        ) {
+                            ForEach(completedHabits) { habit in
                                 HStack {
-                                    Text(habit.name)
+                                    Text(habit.name ?? "")
                                     Spacer()
                                     Button(action: {
                                         withAnimation {
@@ -149,10 +192,12 @@ struct HabitsView: View {
                         }
                     }
                 }
+                .padding(.top, 10)
                 
                 Spacer()
             }
-            .navigationTitle("Habit Tracker")
+            .navigationTitle("Habits")
+            .navigationBarTitleDisplayMode(.inline)
             .overlay(
                 Group {
                     if showToast {
@@ -170,25 +215,29 @@ struct HabitsView: View {
         }
     }
     
-    private func isHabitCompleted(_ habit: Habit, on date: Date) -> Bool {
-        habitCompletions.contains { completion in
-            completion.habitId == habit.id && calendar.isDate(completion.date, inSameDayAs: date)
-        }
+    private func isHabitCompleted(_ habit: CDHabit) -> Bool {
+        completionsForDate(selectedDate).contains { $0.habit == habit }
     }
     
-    private func toggleHabitCompletion(_ habit: Habit) {
-        if isHabitCompleted(habit, on: selectedDate) {
+    private func toggleHabitCompletion(_ habit: CDHabit) {
+        if isHabitCompleted(habit) {
             // Remove completion
-            habitCompletions.removeAll { completion in
-                completion.habitId == habit.id && calendar.isDate(completion.date, inSameDayAs: selectedDate)
+            if let completion = completionsForDate(selectedDate).first(where: { $0.habit == habit }) {
+                viewContext.delete(completion)
             }
         } else {
             // Add completion
-            habitCompletions.append(HabitCompletion(habitId: habit.id, date: selectedDate))
+            let completion = CDHabitCompletion(context: viewContext)
+            completion.id = UUID()
+            completion.completedAt = selectedDate
+            completion.habit = habit
+            
             if isToday {
                 checkAllHabitsCompleted()
             }
         }
+        
+        saveContext()
     }
     
     private func previousDay() {
@@ -209,6 +258,13 @@ struct HabitsView: View {
         }
     }
     
+    private var canMoveForward: Bool {
+        if let nextDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
+            return calendar.isDateInToday(nextDate) || calendar.compare(nextDate, to: Date(), toGranularity: .day) == .orderedAscending
+        }
+        return false
+    }
+    
     private func checkAllHabitsCompleted() {
         if allHabitsCompleted {
             showCompletionAlert = true
@@ -216,10 +272,13 @@ struct HabitsView: View {
     }
     
     private func addHabit() {
-        let habit = newHabitName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !habit.isEmpty else { return }
+        let habit = CDHabit(context: viewContext)
+        habit.id = UUID()
+        habit.name = newHabitName.trimmingCharacters(in: .whitespacesAndNewlines)
+        habit.createdAt = Date()
+        habit.isArchived = false
         
-        habits.append(Habit(name: habit, isCompleted: false))
+        saveContext()
         newHabitName = ""
         
         showToast = true
@@ -228,11 +287,13 @@ struct HabitsView: View {
         }
     }
     
-    private var canMoveForward: Bool {
-        if let nextDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
-            return calendar.isDateInToday(nextDate) || calendar.compare(nextDate, to: Date(), toGranularity: .day) == .orderedAscending
+    private func saveContext() {
+        do {
+            try viewContext.save()
+        } catch {
+            let error = error as NSError
+            fatalError("Unresolved error \(error), \(error.userInfo)")
         }
-        return false
     }
 }
 
@@ -287,6 +348,20 @@ struct CompletionRingView: View {
 struct CalendarGridView: View {
     let currentDate: Date
     @Binding var selectedMonth: Date
+    let viewContext: NSManagedObjectContext
+    
+    @FetchRequest private var habits: FetchedResults<CDHabit>
+    
+    init(currentDate: Date, selectedMonth: Binding<Date>, viewContext: NSManagedObjectContext) {
+        self.currentDate = currentDate
+        self._selectedMonth = selectedMonth
+        self.viewContext = viewContext
+        
+        let request = NSFetchRequest<CDHabit>(entityName: "CDHabit")
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDHabit.createdAt, ascending: true)]
+        request.predicate = NSPredicate(format: "isArchived == NO")
+        _habits = FetchRequest(fetchRequest: request)
+    }
     
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -359,9 +434,9 @@ struct CalendarGridView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 7), spacing: 12) {
                 ForEach(daysInMonth, id: \.self) { date in
                     if calendar.isDate(date, equalTo: selectedMonth, toGranularity: .month) {
-                        DayCell(date: date, isToday: calendar.isDateInToday(date))
+                        DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
                     } else {
-                        DayCell(date: date, isToday: calendar.isDateInToday(date))
+                        DayCell(date: date, isToday: calendar.isDateInToday(date), habits: habits)
                             .opacity(0.3)
                     }
                 }
@@ -387,17 +462,41 @@ struct CalendarGridView: View {
 struct DayCell: View {
     let date: Date
     let isToday: Bool
+    @FetchRequest private var completions: FetchedResults<CDHabitCompletion>
+    let habits: FetchedResults<CDHabit>
     
-    private let calendar = Calendar.current
+    init(date: Date, isToday: Bool, habits: FetchedResults<CDHabit>) {
+        self.date = date
+        self.isToday = isToday
+        self.habits = habits
+        
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let request = NSFetchRequest<CDHabitCompletion>(entityName: "CDHabitCompletion")
+        request.predicate = NSPredicate(
+            format: "completedAt >= %@ AND completedAt < %@",
+            startOfDay as NSDate,
+            endOfDay as NSDate
+        )
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \CDHabitCompletion.completedAt, ascending: true)]
+        _completions = FetchRequest(fetchRequest: request)
+    }
+    
+    private var progress: Double {
+        guard !habits.isEmpty else { return 0 }
+        return Double(completions.count) / Double(habits.count)
+    }
     
     var body: some View {
         VStack(spacing: 8) {
-            Text("\(calendar.component(.day, from: date))")
+            Text("\(Calendar.current.component(.day, from: date))")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(isToday ? .blue : .primary)
             
             CompletionRingView(
-                progress: isToday ? 0.7 : Double.random(in: 0...1),
+                progress: progress,
                 size: 32
             )
         }
@@ -412,11 +511,12 @@ struct DayCell: View {
 }
 
 struct CalendarView: View {
+    @Environment(\.managedObjectContext) private var viewContext
     @State private var selectedMonth = Date()
     
     var body: some View {
         NavigationView {
-            CalendarGridView(currentDate: Date(), selectedMonth: $selectedMonth)
+            CalendarGridView(currentDate: Date(), selectedMonth: $selectedMonth, viewContext: viewContext)
                 .navigationTitle("Calendar")
                 .navigationBarTitleDisplayMode(.inline)
         }
@@ -450,14 +550,18 @@ extension Calendar {
 }
 
 struct ContentView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    
     var body: some View {
         TabView {
             HabitsView()
+                .environment(\.managedObjectContext, viewContext)
                 .tabItem {
                     Label("Habits", systemImage: "checkmark.circle.fill")
                 }
             
             CalendarView()
+                .environment(\.managedObjectContext, viewContext)
                 .tabItem {
                     Label("Calendar", systemImage: "calendar")
                 }
@@ -467,4 +571,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environment(\.managedObjectContext, PersistenceController.shared.container.viewContext)
 }
